@@ -8,8 +8,19 @@ class FeatureConcat(nn.Module):
         self.layers = layers
 
     def forward(self, x, outputs):
-        return torch.cat([outputs[i] for i in self.layers] + [x], dim=1)
-
+        # Coleta todos os tensores das camadas especificadas
+        tensors = []
+        for layer_idx in self.layers:
+            if layer_idx < len(outputs) and outputs[layer_idx] is not None:
+                tensors.append(outputs[layer_idx])
+        # Adiciona o tensor atual (x) se não estiver vazio
+        if x is not None:
+            tensors.append(x)
+        
+        if not tensors:
+            raise ValueError("Nenhum tensor válido para concatenação")
+            
+        return torch.cat(tensors, dim=1)
 
 class WeightedFeatureFusion(nn.Module):
     """Fusão de features com pesos"""
@@ -24,8 +35,10 @@ class WeightedFeatureFusion(nn.Module):
         if self.weight:
             x = x * self.w[0]
             for i, layer in enumerate(self.layers):
-                x += outputs[layer] * self.w[i + 1]
+                if layer < len(outputs) and outputs[layer] is not None:
+                    x += outputs[layer] * self.w[i + 1]
         else:
             for layer in self.layers:
-                x += outputs[layer]
+                if layer < len(outputs) and outputs[layer] is not None:
+                    x += outputs[layer]
         return x

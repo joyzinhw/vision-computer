@@ -11,7 +11,7 @@ from modelo import carregar_modelo_dispositivo, extrair_features_batch, carregar
 # ==========================
 # Configurações
 # ==========================
-dataset_path = "/home/joyzinhw/Documentos/TUDO/AGRUPAMENTO/kvasir-dataset-v2"
+dataset_path = "/home/joyzinhw/Documentos/TUDO/AGRUPAMENTO/kvasir-dataset/kvasir-dataset-v2"
 num_clusters = 8
 batch_size = 32
 features_path = "features_kvasir.npy"
