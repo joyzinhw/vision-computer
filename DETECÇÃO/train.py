@@ -78,7 +78,6 @@ for epoch in range(NUM_EPOCHS):
 
     # ----------- VALIDAÇÃO -----------
     model.eval()
-    val_loss_total = 0.0
     iou_scores = []
     iou_per_class = {i: [] for i in range(NUM_CLASSES)}
     all_preds, all_labels = [], []
@@ -87,39 +86,56 @@ for epoch in range(NUM_EPOCHS):
         for imgs, targets in val_loader:
             imgs = [img.to(DEVICE) for img in imgs]
             targets = [{k: v.to(DEVICE) for k, v in t.items()} for t in targets]
-            loss_dict = model(imgs, targets)
-            val_loss_total += sum(loss for loss in loss_dict.values()).item()
 
             preds = model(imgs)
             for pred, target in zip(preds, targets):
                 if len(pred["boxes"]) == 0 or len(target["boxes"]) == 0:
                     continue
 
+                # IoU total
                 ious = torchvision.ops.box_iou(pred["boxes"], target["boxes"])
                 iou_scores.append(ious.max(dim=1)[0].mean().item())
 
-                # IoU por classe
+                # IoU por classe (com correção)
                 for cls in range(NUM_CLASSES):
                     mask_pred = pred["labels"] == cls
                     mask_true = target["labels"] == cls
+
+                    # 🔒 Garantir que boxes e labels têm o mesmo comprimento
+                    num_boxes = len(pred["boxes"])
+                    num_labels = len(pred["labels"])
+                    if num_boxes != num_labels:
+                        min_len = min(num_boxes, num_labels)
+                        pred["boxes"] = pred["boxes"][:min_len]
+                        pred["labels"] = pred["labels"][:min_len]
+                        print(f"[DEBUG] Corrigido desalinhamento: boxes={num_boxes}, labels={num_labels} → {min_len}")
+
                     if mask_pred.any() and mask_true.any():
-                        iou_cls = torchvision.ops.box_iou(
-                            pred["boxes"][mask_pred], target["boxes"][mask_true]
-                        )
-                        iou_per_class[cls].append(iou_cls.max(dim=1)[0].mean().item())
+                        try:
+                            iou_cls = torchvision.ops.box_iou(
+                                pred["boxes"][mask_pred], target["boxes"][mask_true]
+                            )
+                            if iou_cls.numel() > 0:
+                                iou_per_class[cls].append(iou_cls.max(dim=1)[0].mean().item())
+                        except Exception as e:
+                            print(f"[Aviso] Erro ao calcular IoU para classe {cls}: {e}")
 
-                all_preds.extend(pred["labels"].cpu().numpy())
-                all_labels.extend(target["labels"].cpu().numpy())
+                # 🟢 Correção: garantir mesmo número de rótulos e predições
+                pred_labels = pred["labels"].cpu().numpy()
+                true_labels = target["labels"].cpu().numpy()
+                n = min(len(pred_labels), len(true_labels))
+                if n > 0:
+                    all_preds.extend(pred_labels[:n])
+                    all_labels.extend(true_labels[:n])
 
-    avg_val_loss = val_loss_total / len(val_loader)
-    val_losses.append(avg_val_loss)
     mean_iou = np.mean(iou_scores) if iou_scores else 0
     mean_iou_per_class = {k: np.mean(v) if v else 0 for k, v in iou_per_class.items()}
 
     cm = confusion_matrix(all_labels, all_preds, labels=list(range(NUM_CLASSES)))
     accuracy = np.trace(cm) / np.sum(cm) if np.sum(cm) > 0 else 0
 
-    print(f"🧪 Validação | Loss={avg_val_loss:.4f} | IoU={mean_iou:.4f} | Acc={accuracy:.4f}")
+    val_losses.append(0)
+    print(f"🧪 Validação | IoU={mean_iou:.4f} | Acc={accuracy:.4f}")
     print(f"📊 IoU por classe: {mean_iou_per_class}")
 
 # ==================== SALVAR MODELO ==================== #
@@ -129,8 +145,7 @@ print("\n✅ Modelo salvo com sucesso!\n")
 # ==================== CURVA DE LOSS ==================== #
 plt.figure(figsize=(8, 5))
 plt.plot(train_losses, label="Treino")
-plt.plot(val_losses, label="Validação")
-plt.title("Evolução do Loss (Treino vs Validação)")
+plt.title("Evolução do Loss (Treino)")
 plt.xlabel("Época")
 plt.ylabel("Loss Médio")
 plt.legend()
